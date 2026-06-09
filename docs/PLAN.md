@@ -1,0 +1,133 @@
+# Plan: `git-wt` — bare-repo + worktree layout tool
+
+> Design record for `git-wt`. Decisions below were settled in a Q&A session and
+> verified end-to-end against real repos. Kept for future reference.
+
+## Context
+
+The bare-repo + worktree layout puts one container folder holding the bare
+object store (`.git/`) plus one sibling folder per checked-out branch. Setting
+it up by hand is a fiddly multi-step dance (bare init/clone, refspec fix, fetch,
+per-worktree upstream). `git-wt` automates the two entry points:
+
+- **`init`** — stand up the layout in a brand-new repo (no `.git`, no remote).
+- **`migrate`** — convert an existing repo (local-only or with a remote) into
+  the same clean layout, losslessly and without touching the remote.
+
+A motivating use case is running parallel agents/editors at once, each in its
+own clean worktree sibling.
+
+## Resulting layout (target)
+
+```
+myrepo/
+├── .git/        ← bare object store (named .git directly, no pointer file)
+├── main/        ← worktree for branch `main`
+└── feature/x/   ← worktree for branch `feature/x` (verbatim, nested ok)
+```
+
+## Form & packaging
+
+- **Single bash file** `git-wt` (no extension), `#!/usr/bin/env bash`,
+  `set -euo pipefail`.
+- Subcommand **dispatcher**: `init`, `migrate`, `help` (room for future
+  `add`/`list`/`remove`); shared helper functions at the top.
+- Named `git-wt` (not `git-worktree`) so git's `git foo → git-foo` mapping makes
+  it invokable as **`git wt …`** without colliding with the built-in
+  `git worktree`.
+- **Install:** symlink `~/.local/bin/git-wt → repo/git-wt` (that dir is on PATH).
+
+## `git wt init [branch]`
+
+Operates on the current directory (the container).
+
+1. **Abort** if `.git` exists (dir *or* file) — not a brand-new repo.
+2. Resolve branch name: positional arg → else `git config init.defaultBranch`
+   → else `main`.
+3. `git init --bare .git`.
+4. `git worktree add --orphan <branch>` — unborn branch, **no synthetic commit**
+   (matches a fresh `git init`; requires git ≥ 2.42).
+5. If the directory was **non-empty** beforehand (files but no `.git`), move
+   those entries into `<branch>/` so they're untracked and ready for the first
+   commit. Empty dir → empty worktree.
+6. No remote interaction (precondition: no remote).
+7. Print resulting tree + next steps.
+
+## `git wt migrate [--dry-run] [-y]`
+
+Operates in-place on the current repo. Strategy: **reuse the existing `.git`**
+(flip to bare) — lossless (keeps all local branches, tags, stashes, reflog), no
+network, identical path for local-only and remote repos.
+
+1. **Preconditions:**
+   - Must be the **root** of a git repo.
+   - **Non-bare repo:** abort if the working tree is dirty
+     (`git status --porcelain` non-empty) — print offending files. Removal only
+     ever touches files that exist verbatim in a commit.
+   - **Already bare:** enter *resume mode* (see below) instead of aborting.
+2. **Plan + confirm:** print the plan (branches→folders to create, committed
+   files to remove, ignored files to move). Prompt `[y/N]`.
+   - `--dry-run` → print plan and exit, change nothing.
+   - `-y`/`--yes` → skip the prompt.
+3. `git config core.bare true`.
+4. Remove the now-redundant **committed** files from the container root
+   (recreated inside worktrees).
+5. For **every local branch**: `git worktree add <branch> <branch>` (verbatim
+   folder names; slashed names → nested folders).
+6. **Move git-ignored files** (`.env`, `node_modules/`, `dist/`, …) into the
+   current branch's worktree (or, if detached HEAD, the default branch's —
+   `init.defaultBranch`, else first branch) so secrets/deps follow the code.
+7. **Remote: write nothing.** Reusing `.git` keeps the fetch refspec,
+   `origin/*` refs, `origin/HEAD`, and per-branch upstreams intact. **Read-only
+   sanity check** only: warn (no changes) if the fetch refspec or `origin/HEAD`
+   looks broken.
+8. Print resulting tree + next steps.
+
+### Resume mode (idempotent migrate)
+
+A migrate that dies mid-loop leaves the repo **already bare** with only some
+worktrees created. Re-running must continue, not abort. So when the repo is
+already bare, migrate:
+
+- skips the clean-tree check, the `core.bare` flip, and committed-file removal
+  (inapplicable — a bare repo has no work tree at the root);
+- creates only the **missing** worktrees;
+- reports *"Already migrated — nothing to do"* when every local branch already
+  has a worktree.
+
+## Key implementation notes / edge cases
+
+- Repo root: `git rev-parse --show-toplevel` == `$PWD`.
+- Bare/non-bare: `git rev-parse --is-bare-repository`.
+- Local branches: `git for-each-ref --format='%(refname:short)' refs/heads`.
+- Existing worktrees (idempotency): `git worktree list --porcelain` →
+  `worktree ` lines.
+- Committed root entries to remove: `git ls-tree --name-only HEAD` (top level).
+- Ignored entries to move: `git ls-files --others --ignored --exclude-standard
+  --directory`, reduced to top-level components.
+- Ignored files are set aside (temp dir) before the bare flip / removal, then
+  moved into the target worktree once it exists.
+- All `mv` operations are same-filesystem (cheap) — `node_modules/` etc. move
+  instantly rather than being regenerated.
+
+## Verification (all passing)
+
+1. `bash -n git-wt` (syntax). `shellcheck` if available.
+2. **init (empty):** `.git/` + empty unborn `main/`.
+3. **init (non-empty):** pre-existing files moved into `main/`, untracked.
+4. **init guard:** re-run aborts (`.git` exists).
+5. **migrate (local, multi-branch + ignored):** dry-run plan, then `-y`; all
+   branches → worktree folders; `.env`/`node_modules/` land in the current
+   branch's worktree; dirty tree is rejected first.
+6. **migrate (remote clone):** `remote.origin.fetch`, branch upstreams, and
+   `origin/HEAD` all **unchanged** before vs after.
+7. **migrate resume:** interrupt mid-loop (or pre-create one worktree), re-run →
+   completes remaining branches; fully-migrated re-run reports "nothing to do".
+8. **dirty abort:** uncommitted change → aborts and lists the file.
+9. **broken remote:** bad refspec / missing `origin/HEAD` → warn-only, no writes.
+
+## Files
+
+- `git-wt` — the script.
+- `README.md` — usage + install.
+- `docs/PLAN.md` — this document.

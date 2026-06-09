@@ -1,0 +1,348 @@
+#!/usr/bin/env bash
+#
+# git-wt — set up and migrate to a bare-repo + worktree layout.
+#
+# Layout:
+#   myrepo/
+#   ├── .git/        ← bare object store (named .git directly, no pointer file)
+#   ├── main/        ← worktree for branch `main`
+#   └── feature/x/   ← worktree for branch `feature/x` (verbatim, nested ok)
+#
+# Subcommands:
+#   git wt init [branch]            stand up the layout in a brand-new repo
+#   git wt migrate [--dry-run] [-y] convert an existing repo to the layout
+#   git wt help                     show this help
+#
+# Install as a git subcommand (so `git wt …` works):
+#   ln -s "$PWD/git-wt" ~/.local/bin/git-wt
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+PROG="git wt"
+DRY_RUN=0
+ASSUME_YES=0
+
+# Colours (only when stdout is a tty).
+if [[ -t 1 ]]; then
+  C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YEL=$'\033[33m'
+  C_CYN=$'\033[36m'; C_DIM=$'\033[2m'; C_RST=$'\033[0m'
+else
+  C_RED=''; C_GRN=''; C_YEL=''; C_CYN=''; C_DIM=''; C_RST=''
+fi
+
+info()  { printf '%s\n' "$*"; }
+step()  { printf '%s→%s %s\n' "$C_CYN" "$C_RST" "$*"; }
+warn()  { printf '%swarning:%s %s\n' "$C_YEL" "$C_RST" "$*" >&2; }
+die()   { printf '%serror:%s %s\n' "$C_RED" "$C_RST" "$*" >&2; exit 1; }
+
+# run CMD... — execute, or just echo it under --dry-run.
+run() {
+  if (( DRY_RUN )); then
+    printf '%s[dry-run]%s %s\n' "$C_DIM" "$C_RST" "$*"
+  else
+    "$@"
+  fi
+}
+
+# confirm PROMPT — return 0 to proceed. Honours -y; defaults to No.
+confirm() {
+  (( ASSUME_YES )) && return 0
+  (( DRY_RUN ))    && return 1
+  local reply
+  printf '%s [y/N] ' "$1"
+  read -r reply || reply=""
+  [[ "$reply" =~ ^[Yy]$ ]]
+}
+
+usage() {
+  cat <<EOF
+${PROG} — bare-repo + worktree layout tool
+
+Usage:
+  ${PROG} init [branch]              set up the layout in a brand-new repo
+                                     (aborts if a .git already exists)
+  ${PROG} migrate [--dry-run] [-y]   convert the current repo to the layout
+  ${PROG} help                       show this help
+
+Options for migrate:
+  --dry-run    print the plan and exit; change nothing
+  -y, --yes    skip the confirmation prompt
+
+Install (so 'git wt …' works):
+  ln -s "\$(pwd)/git-wt" ~/.local/bin/git-wt
+EOF
+}
+
+# Resolve the default branch name: init.defaultBranch, else "main".
+default_branch_name() {
+  local b
+  b="$(git config --get init.defaultBranch 2>/dev/null || true)"
+  printf '%s' "${b:-main}"
+}
+
+# Top-level entries (files & dirs) in the current dir, excluding . .. and .git.
+list_root_entries() {
+  local e
+  for e in * .[!.]* ..?*; do
+    [[ -e "$e" || -L "$e" ]] || continue
+    [[ "$e" == ".git" ]] && continue
+    printf '%s\n' "$e"
+  done
+}
+
+# Print the resulting tree for a container dir.
+print_tree() {
+  local container="$1"
+  info ""
+  info "${C_GRN}Layout ready${C_RST} at ${container}:"
+  info "  ${container}/"
+  info "  ├── .git/        ← bare object store"
+  local wt
+  while IFS= read -r wt; do
+    [[ -z "$wt" ]] && continue
+    info "  └── ${wt}/"
+  done < <(git -C "$container" worktree list --porcelain 2>/dev/null \
+             | awk '/^worktree /{print $2}' \
+             | while read -r p; do
+                 [[ "$p" == "$container" ]] && continue
+                 printf '%s\n' "${p#"$container"/}"
+               done)
+}
+
+# ---------------------------------------------------------------------------
+# init
+# ---------------------------------------------------------------------------
+
+cmd_init() {
+  local branch=""
+  while (( $# )); do
+    case "$1" in
+      -h|--help) usage; return 0 ;;
+      -*) die "init: unknown option '$1'" ;;
+      *)  [[ -n "$branch" ]] && die "init: unexpected extra argument '$1'"
+          branch="$1" ;;
+    esac
+    shift
+  done
+  [[ -z "$branch" ]] && branch="$(default_branch_name)"
+
+  # Precondition: brand-new repo — no .git of any kind.
+  [[ -e ".git" ]] && die "'.git' already exists here — not a brand-new repo. Use '${PROG} migrate' instead."
+
+  # Capture pre-existing entries (before we create .git / the worktree).
+  local -a preexisting=()
+  local e
+  while IFS= read -r e; do
+    [[ -n "$e" ]] && preexisting+=("$e")
+  done < <(list_root_entries)
+
+  local container; container="$(pwd)"
+
+  step "git init --bare .git"
+  run git init --bare .git
+
+  step "git worktree add --orphan ${branch}"
+  run git worktree add --orphan "$branch"
+
+  # Move any pre-existing files into the new worktree.
+  if (( ${#preexisting[@]} )); then
+    step "moving existing files into ${branch}/"
+    for e in "${preexisting[@]}"; do
+      run mv -- "$e" "$branch/"
+    done
+  fi
+
+  print_tree "$container"
+  info ""
+  info "Next steps:"
+  info "  cd ${branch}"
+  info "  # make your first commit, then: git push -u origin ${branch}"
+}
+
+# ---------------------------------------------------------------------------
+# migrate
+# ---------------------------------------------------------------------------
+
+cmd_migrate() {
+  while (( $# )); do
+    case "$1" in
+      --dry-run)   DRY_RUN=1 ;;
+      -y|--yes)    ASSUME_YES=1 ;;
+      -h|--help)   usage; return 0 ;;
+      *)           die "migrate: unknown argument '$1'" ;;
+    esac
+    shift
+  done
+
+  # Preconditions ----------------------------------------------------------
+  git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repository."
+
+  local container; container="$(pwd)"
+
+  # RESUME mode: the repo is already bare (e.g. a previous migrate died
+  # mid-loop, or this is a plain bare repo). We only create the missing
+  # worktrees; the clean-tree check, core.bare flip, and committed-file
+  # removal are inapplicable (a bare repo has no work tree at the root).
+  local resume=0
+  if [[ "$(git rev-parse --is-bare-repository)" == "true" ]]; then
+    resume=1
+  else
+    local toplevel; toplevel="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    [[ "$toplevel" == "$container" ]] || die "run from the repository root ($toplevel)."
+    if [[ -n "$(git status --porcelain)" ]]; then
+      info "${C_RED}Working tree is not clean.${C_RST} Commit, stash, or clean these first:"
+      git status --short
+      die "migrate requires a clean working tree (no staged, unstaged, or untracked files)."
+    fi
+  fi
+
+  # Gather the plan --------------------------------------------------------
+  local -a branches=()
+  local b
+  while IFS= read -r b; do
+    [[ -n "$b" ]] && branches+=("$b")
+  done < <(git for-each-ref --format='%(refname:short)' refs/heads)
+  (( ${#branches[@]} )) || die "no local branches to migrate."
+
+  # Current branch (empty if detached HEAD).
+  local current; current="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+
+  # Committed/ignored handling only applies to a non-bare (first-time) migrate.
+  local -a committed=() ignored=()
+  if (( ! resume )); then
+    # Committed top-level entries to remove from the container root.
+    while IFS= read -r e; do
+      [[ -n "$e" ]] && committed+=("$e")
+    done < <(git ls-tree --name-only HEAD 2>/dev/null || true)
+
+    # Ignored top-level entries to move into a worktree.
+    while IFS= read -r e; do
+      [[ -z "$e" ]] && continue
+      e="${e%/}"                       # strip trailing slash on dirs
+      [[ "$e" == */* ]] && e="${e%%/*}" # keep only the top-level component
+      ignored+=("$e")
+    done < <(git ls-files --others --ignored --exclude-standard --directory | awk -F/ '{print $1}' | sort -u)
+  fi
+
+  # Which branches still need a worktree? (drives idempotent resume.)
+  local -a to_create=()
+  local existing_wts
+  existing_wts="$(git worktree list --porcelain | awk '/^worktree /{print $2}')"
+  for b in "${branches[@]}"; do
+    grep -qxF "${container}/${b}" <<<"$existing_wts" || to_create+=("$b")
+  done
+
+  # Which worktree do ignored files follow?
+  local ignored_target="$current"
+  if [[ -z "$ignored_target" ]]; then
+    ignored_target="$(default_branch_name)"
+    # fall back to the first branch if the default isn't among them
+    printf '%s\n' "${branches[@]}" | grep -qx "$ignored_target" || ignored_target="${branches[0]}"
+  fi
+
+  # Nothing left to do? (resume re-run on an already-complete layout)
+  if (( resume && ${#to_create[@]} == 0 )); then
+    info "${C_GRN}Already migrated${C_RST} — every local branch has a worktree. Nothing to do."
+    return 0
+  fi
+
+  # Show the plan ----------------------------------------------------------
+  info "${C_CYN}Migrate plan${C_RST} for ${container}:"
+  (( resume )) && info "  ${C_DIM}(resuming — repo already bare)${C_RST}"
+  (( ! resume )) && info "  flip .git → bare (git config core.bare true)"
+  info "  create worktrees:"
+  for b in "${to_create[@]}"; do info "    ${b}/"; done
+  if (( ${#committed[@]} )); then
+    info "  remove committed files from root:"
+    for e in "${committed[@]}"; do info "    ${e}"; done
+  fi
+  if (( ${#ignored[@]} )); then
+    info "  move ignored files into ${ignored_target}/:"
+    for e in "${ignored[@]}"; do info "    ${e}"; done
+  fi
+  info ""
+
+  if (( DRY_RUN )); then
+    info "${C_DIM}(dry-run — no changes made)${C_RST}"
+    return 0
+  fi
+  confirm "Proceed?" || die "aborted."
+
+  # Execute ----------------------------------------------------------------
+  # Stash ignored entries aside first so flipping/removing can't disturb them,
+  # then drop them into the target worktree once it exists.
+  local stash=""
+  if (( ${#ignored[@]} )); then
+    stash="$(mktemp -d "${container}/.git-wt-ignored.XXXXXX")"
+    step "setting aside ignored files"
+    for e in "${ignored[@]}"; do
+      [[ -e "$e" || -L "$e" ]] && run mv -- "$e" "$stash/"
+    done
+  fi
+
+  if (( ! resume )); then
+    step "git config core.bare true"
+    run git config core.bare true
+  fi
+
+  if (( ${#committed[@]} )); then
+    step "removing committed files from container root"
+    for e in "${committed[@]}"; do
+      [[ -e "$e" || -L "$e" ]] && run rm -rf -- "$e"
+    done
+  fi
+
+  step "creating worktrees"
+  for b in "${to_create[@]}"; do
+    run git worktree add "$b" "$b"
+  done
+
+  # Move ignored files into their target worktree.
+  if [[ -n "$stash" ]]; then
+    step "moving ignored files into ${ignored_target}/"
+    for e in "${ignored[@]}"; do
+      [[ -e "$stash/$e" || -L "$stash/$e" ]] && run mv -- "$stash/$e" "${ignored_target}/"
+    done
+    rmdir "$stash" 2>/dev/null || warn "leftover files in $stash — please check."
+  fi
+
+  # Read-only remote sanity check (no writes).
+  if git remote get-url origin >/dev/null 2>&1; then
+    local refspec; refspec="$(git config --get remote.origin.fetch || true)"
+    if [[ "$refspec" != *"refs/remotes/origin/*"* ]]; then
+      warn "remote.origin.fetch looks off ('$refspec'); future 'git worktree add --track' may misbehave."
+      warn "  fix: git config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*' && git fetch origin"
+    fi
+    if ! git symbolic-ref --quiet refs/remotes/origin/HEAD >/dev/null 2>&1; then
+      warn "origin/HEAD is not set; '--track' adds may fall back to local HEAD."
+      warn "  fix: git remote set-head origin -a"
+    fi
+  fi
+
+  print_tree "$container"
+  info ""
+  info "Next steps:"
+  info "  cd ${ignored_target}"
+  info "  git worktree list"
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+main() {
+  local sub="${1:-help}"
+  shift || true
+  case "$sub" in
+    init)            cmd_init "$@" ;;
+    migrate)         cmd_migrate "$@" ;;
+    help|-h|--help)  usage ;;
+    *)               usage >&2; die "unknown subcommand '$sub'." ;;
+  esac
+}
+
+main "$@"
