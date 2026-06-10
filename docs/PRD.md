@@ -18,10 +18,9 @@ side by side, each in its own clean folder.
 
 ## Scope
 
-In scope: three subcommands — `init` (brand-new repo), `migrate` (existing
-repo), and `add` (create one more worktree in an existing layout). Out of scope
-(for now): `list`, `remove`, and `switch` subcommands, and any remote-mutating
-behaviour.
+In scope: two subcommands, `init` (brand-new repo) and `migrate` (existing
+repo). Out of scope (for now): `add`, `list`, `remove` worktree subcommands, and
+any remote-mutating behaviour.
 
 ## Requirements (EARS)
 
@@ -39,7 +38,7 @@ standard patterns:
 - **G1 (Ubiquitous).** The tool shall be a single executable named `git-wt` so it
   can be run as the git subcommand `git wt`.
 - **G2 (Ubiquitous).** The tool shall support the subcommands `init`, `migrate`,
-  `add`, and `help`.
+  and `help`.
 - **G3 (Event-driven).** When the tool is run with no subcommand, or with `help`,
   `-h`, or `--help`, the tool shall print usage and exit successfully.
 - **G4 (Unwanted behaviour).** If an unknown subcommand is given, then the tool
@@ -118,53 +117,6 @@ standard patterns:
 - **M15 (Event-driven).** When `migrate` finishes, the tool shall print the
   resulting layout and the next steps.
 
-### `add`
-
-> IDs use the `D` prefix (*a**D**d*) because `A` already denotes Assumptions.
-
-- **D1 (Ubiquitous).** `add` shall create a single new worktree in the layout,
-  placing it as a sibling of `.git/` in the container, with the folder named
-  exactly after its branch (verbatim, nested for slashed names) — the same
-  invariant as G5/G6.
-- **D2 (Ubiquitous).** `add` shall resolve the container as the parent of the git
-  common directory (`git rev-parse --git-common-dir`), so it places the worktree
-  correctly regardless of the current working directory — including when run from
-  inside an existing (possibly nested) worktree.
-- **D3 (Unwanted behaviour).** If the current directory is not inside a git
-  repository, then `add` shall abort with an error.
-- **D4 (Event-driven).** When `add` is given a branch name that exists as a local
-  branch, the tool shall check that branch out into the new worktree.
-- **D5 (Event-driven).** When the branch does not exist locally but a matching
-  remote-tracking branch exists (for example `origin/<branch>`), `add` shall
-  create a local branch tracking it, using only already-fetched refs (no
-  network).
-- **D6 (Event-driven).** When the branch exists neither locally nor on a remote,
-  `add` shall create a new branch from the base ref given by `--from <ref>`,
-  defaulting to `HEAD`.
-- **D7 (Unwanted behaviour).** If a worktree for the branch already exists, then
-  `add` shall print its path and exit successfully without making changes.
-- **D8 (Unwanted behaviour).** If the target folder already exists but is not the
-  worktree for that branch, then `add` shall abort without clobbering it.
-- **D9 (State-driven).** While git-ignored env files matching the copy set
-  (default `.env*` at the worktree root) exist in the source worktree, `add`
-  shall copy them into the new worktree so it is immediately runnable. The source
-  is the worktree the current directory is in, or — when run from outside any
-  worktree — the default branch's worktree.
-- **D10 (Optional).** Where `--no-copy-ignored` is given, `add` shall copy no
-  ignored files; where `--copy-ignored <glob>` is given (repeatable), `add` shall
-  extend the set of patterns it copies.
-- **D11 (Ubiquitous).** `add` shall only copy files that are genuinely
-  git-ignored in the source and match the copy set, and shall never overwrite an
-  existing file in the new worktree.
-- **D12 (Event-driven).** When `--dry-run`/`-n` is given, `add` shall print the
-  plan (folder to create, how the branch resolves, files to copy) and exit
-  without making any change.
-- **D13 (Ubiquitous).** `add` shall not contact or mutate any remote (offline,
-  per N1) and shall be non-destructive (per N2): it only ever adds a worktree and
-  copies ignored files, so it needs no confirmation prompt.
-- **D14 (Event-driven).** When `add` finishes, the tool shall print the resulting
-  layout and the next step (for example `cd <container>/<branch>`).
-
 ## Non-functional requirements
 
 - **N1 (Ubiquitous).** The tool shall run offline; no subcommand shall require
@@ -190,8 +142,4 @@ standard patterns:
 
 - Setting up or pushing to a remote during `init`.
 - Repairing remote configuration during `migrate` (it only warns).
-- Creating worktrees for branches that exist only on the remote (during
-  `migrate`).
-- Fetching from the remote during `add` — it resolves only already-fetched
-  remote-tracking branches; the user fetches first if needed.
-- `list`, `remove`, and `switch` subcommands.
+- Creating worktrees for branches that exist only on the remote.
