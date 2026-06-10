@@ -95,6 +95,63 @@ already bare, migrate:
 - reports *"Already migrated — nothing to do"* when every local branch already
   has a worktree.
 
+## `git wt add [<branch>] [--from <ref>] [--no-copy-ignored] [--copy-ignored <glob>]... [-n]`
+
+Adds **one** worktree to an existing layout. Additive and non-destructive, so —
+unlike `migrate` — it has **no confirm prompt**; `--dry-run`/`-n` still prints
+the plan and changes nothing.
+
+### Why a wrapper beats raw `git worktree add`
+
+The built-in resolves a relative `<path>` against the **current shell
+directory**, not the container. In this layout that bites hard: from inside
+`main/`, `git worktree add feature/x feature/x` creates `main/feature/x/` —
+nested under `main`, not a sibling of `.git/` — and you must type the branch
+twice and compute the right `../` prefix (worse from already-nested worktrees).
+`add` removes all of that and, by default, copies `.env`-style files so the new
+worktree actually runs (mirrors `migrate`'s ignored-file handling, M10).
+
+### Steps
+
+1. **Anchor to the container.** `container = dirname(git rev-parse
+   --git-common-dir)`. The worktree always lands at `<container>/<branch>`
+   regardless of CWD.
+2. **Resolve the branch (offline):**
+   - local branch exists → `git worktree add <container>/<branch> <branch>`;
+   - else remote-tracking `<remote>/<branch>` exists (prefer `origin`) →
+     `git worktree add --track -b <branch> <container>/<branch> <remote>/<branch>`;
+   - else new branch → `git worktree add -b <branch> <container>/<branch> <base>`,
+     where `base = --from` else `HEAD`.
+3. **Guards.** If a worktree for the branch already exists → print its path,
+   exit 0. If `<container>/<branch>` exists but isn't that worktree → abort
+   (don't clobber).
+4. **Copy ignored env files** (default on). Source worktree = the one the CWD is
+   in, else the default branch's worktree (`default_branch_name`). For each
+   pattern in the copy set (default `.env*` at the worktree root; extend with
+   repeatable `--copy-ignored <glob>`), copy matching files that are (a)
+   git-ignored in the source and (b) absent in the new worktree. Never
+   overwrite. `--no-copy-ignored` disables the step entirely.
+5. **No network, no remote writes** (N1). Remote-tracking resolution reads only
+   already-fetched refs.
+6. Print the resulting tree + next step (`cd <container>/<branch>`).
+
+### Key impl notes
+
+- Container / common-dir: `git rev-parse --git-common-dir` → parent. Works from
+  the container root (bare) or from any worktree.
+- Existing-worktree lookup: `git worktree list --porcelain`, match
+  `branch refs/heads/<branch>` or `worktree <container>/<branch>`.
+- Remote-tracking existence: `git show-ref --verify --quiet
+  refs/remotes/origin/<branch>` (iterate remotes if origin lacks it).
+- Ignored check: `git -C <source> check-ignore -q <file>` before copying; the
+  default glob stays at the worktree root to avoid surprises.
+- **Copy, not symlink:** each worktree's `.env` stays independent, so parallel
+  agents can diverge config without clobbering a shared file. A future `--link`
+  flag could offer symlinks; out of scope now.
+- Reuses existing helpers — `default_branch_name`, `print_tree`, colour, `run`
+  (honours `DRY_RUN`), `die` — and slots into the dispatcher beside `init`/
+  `migrate`.
+
 ## Key implementation notes / edge cases
 
 - Repo root: `git rev-parse --show-toplevel` == `$PWD`.
@@ -141,6 +198,17 @@ already bare, migrate:
    completes remaining branches; fully-migrated re-run reports "nothing to do".
 8. **dirty abort:** uncommitted change → aborts and lists the file.
 9. **broken remote:** bad refspec / missing `origin/HEAD` → warn-only, no writes.
+10. **add (local branch):** sibling worktree lands at `<container>/<branch>` —
+   correct even when run from inside another (nested) worktree.
+11. **add (remote-only-but-fetched branch):** creates a tracking branch with no
+   network.
+12. **add (new branch):** created from `HEAD`, and from an explicit `--from <ref>`.
+13. **add (.env copy):** a git-ignored `.env` in the source worktree is copied
+   into the new worktree; `--no-copy-ignored` suppresses it; an existing `.env`
+   is never overwritten.
+14. **add guards:** existing worktree → prints its path and exits 0; an occupied
+   non-worktree dir → aborts without clobbering.
+15. **add dry-run:** prints the plan and creates nothing.
 
 ## Files
 
