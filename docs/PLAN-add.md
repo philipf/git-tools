@@ -1,7 +1,7 @@
 # Plan: `git wt add` — create one worktree in an existing layout
 
-> Design record for a proposed `add` subcommand. Standalone for now; folds into
-> `docs/PRD.md` / `docs/PLAN.md` once settled and implemented. Status: **draft**.
+> Design record for the `add` subcommand. Status: **implemented** in `git-wt`
+> (`cmd_add`), covered by `tests/test_add.sh`.
 
 ## Context
 

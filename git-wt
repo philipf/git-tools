@@ -11,6 +11,7 @@
 # Subcommands:
 #   git wt init [branch]            stand up the layout in a brand-new repo
 #   git wt migrate [--dry-run] [-y] convert an existing repo to the layout
+#   git wt add [branch] [opts]      add one worktree to an existing layout
 #   git wt help                     show this help
 #
 # Install as a git subcommand (so `git wt …` works):
@@ -66,11 +67,19 @@ Usage:
   ${PROG} init [branch]              set up the layout in a brand-new repo
                                      (aborts if a .git already exists)
   ${PROG} migrate [--dry-run] [-y]   convert the current repo to the layout
+  ${PROG} add [branch] [options]     add one worktree to an existing layout
+                                     (pick interactively if branch is omitted)
   ${PROG} help                       show this help
 
 Options for migrate:
   --dry-run    print the plan and exit; change nothing
   -y, --yes    skip the confirmation prompt
+
+Options for add:
+  --from <ref>        base ref for a brand-new branch (default: HEAD)
+  --copy-all          also copy heavy dirs (node_modules, .venv, …)
+  --no-copy-ignored   do not copy any ignored files
+  -n, --dry-run       print the plan and exit; change nothing
 
 Install (so 'git wt …' works):
   ln -s "\$(pwd)/git-wt" ~/.local/bin/git-wt
@@ -111,6 +120,110 @@ print_tree() {
                  [[ "$p" == "$container" ]] && continue
                  printf '%s\n' "${p#"$container"/}"
                done)
+}
+
+# ---------------------------------------------------------------------------
+# add — helpers
+# ---------------------------------------------------------------------------
+
+# Heavy, regenerable directories skipped when copying ignored files into a new
+# worktree (unless --copy-all): big, and better rebuilt than duplicated.
+SKIP_DIRS=(node_modules .venv venv target dist build out .next .nuxt .svelte-kit
+           __pycache__ .cache .parcel-cache .pytest_cache .mypy_cache .gradle
+           vendor coverage .turbo)
+
+is_skip_dir() {
+  local n="$1" s
+  for s in "${SKIP_DIRS[@]}"; do [[ "$n" == "$s" ]] && return 0; done
+  return 1
+}
+
+# container_dir — absolute path to the layout container (parent of the bare .git
+# common dir). Works from the container root or from inside any worktree.
+container_dir() {
+  local common; common="$(git rev-parse --git-common-dir 2>/dev/null)" || return 1
+  common="$(cd "$common" && pwd)"
+  dirname "$common"
+}
+
+# wt_path_for_branch BRANCH — print the existing worktree path for BRANCH, if any.
+wt_path_for_branch() {
+  git worktree list --porcelain | awk -v b="refs/heads/$1" '
+    /^worktree /{p=$2}
+    $1=="branch" && $2==b {print p}'
+}
+
+# branches_with_worktree — short branch names that already have a worktree.
+branches_with_worktree() {
+  git worktree list --porcelain \
+    | awk '$1=="branch"{sub(/^refs\/heads\//,"",$2); print $2}'
+}
+
+# first_worktree CONTAINER — path of the first non-bare worktree (fallback source).
+first_worktree() {
+  local p
+  while IFS= read -r p; do
+    [[ -z "$p" || "$p" == "$1" ]] && continue
+    printf '%s\n' "$p"; return 0
+  done < <(git worktree list --porcelain | awk '/^worktree /{print $2}')
+}
+
+# reinstall_hint SRC DIR — suggested command to rebuild a skipped heavy DIR.
+reinstall_hint() {
+  local s="$1" d="$2"
+  case "$d" in
+    node_modules)
+      if   [[ -f "$s/pnpm-lock.yaml" ]]; then echo "pnpm install"
+      elif [[ -f "$s/yarn.lock"      ]]; then echo "yarn"
+      elif [[ -f "$s/bun.lockb"      ]]; then echo "bun install"
+      else echo "npm install"; fi ;;
+    .venv|venv)
+      if   [[ -f "$s/uv.lock"          ]]; then echo "uv sync"
+      elif [[ -f "$s/poetry.lock"      ]]; then echo "poetry install"
+      elif [[ -f "$s/requirements.txt" ]]; then echo "pip install -r requirements.txt"
+      else echo "recreate the virtualenv"; fi ;;
+    target)  [[ -f "$s/Cargo.toml" ]] && echo "cargo build" || echo "" ;;
+    vendor)
+      if   [[ -f "$s/go.mod"  ]]; then echo "go mod vendor"
+      elif [[ -f "$s/Gemfile" ]]; then echo "bundle install"
+      else echo ""; fi ;;
+    *) echo "" ;;
+  esac
+}
+
+# list_dir_entries DIR — bare names of entries in DIR, excluding . .. and .git.
+list_dir_entries() {
+  local dir="$1" e name
+  for e in "$dir"/* "$dir"/.[!.]* "$dir"/..?*; do
+    [[ -e "$e" || -L "$e" ]] || continue
+    name="${e##*/}"
+    [[ "$name" == ".git" ]] && continue
+    printf '%s\n' "$name"
+  done
+}
+
+# pick_branch — interactively choose a branch that has no worktree yet.
+pick_branch() {
+  local -a cands=()
+  local b
+  while IFS= read -r b; do [[ -n "$b" ]] && cands+=("$b"); done < <(
+    {
+      git for-each-ref --format='%(refname:short)' refs/heads
+      git for-each-ref --format='%(refname:short)' refs/remotes \
+        | grep -v '/HEAD$' | sed 's#^[^/]*/##'
+    } | sort -u | grep -vxF -f <(branches_with_worktree) || true
+  )
+  (( ${#cands[@]} )) || { warn "no branches without a worktree."; return 1; }
+  if command -v fzf >/dev/null 2>&1; then
+    printf '%s\n' "${cands[@]}" | fzf --prompt='new worktree branch> '
+  else
+    local choice
+    PS3="Select a branch for a new worktree: "
+    select choice in "${cands[@]}"; do
+      [[ -n "$choice" ]] && { printf '%s\n' "$choice"; return 0; }
+    done
+    return 1
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -344,6 +457,116 @@ cmd_migrate() {
 }
 
 # ---------------------------------------------------------------------------
+# add
+# ---------------------------------------------------------------------------
+
+cmd_add() {
+  local branch="" base="HEAD" copy_all=0 no_copy=0
+  while (( $# )); do
+    case "$1" in
+      --from)            shift; (( $# )) || die "add: --from needs a ref"; base="$1" ;;
+      --from=*)          base="${1#--from=}" ;;
+      --copy-all)        copy_all=1 ;;
+      --no-copy-ignored) no_copy=1 ;;
+      -n|--dry-run)      DRY_RUN=1 ;;
+      -h|--help)         usage; return 0 ;;
+      -*)                die "add: unknown option '$1'" ;;
+      *) [[ -n "$branch" ]] && die "add: unexpected extra argument '$1'"
+         branch="$1" ;;
+    esac
+    shift
+  done
+
+  # Preconditions: inside a repo, and it must be the bare-repo layout.
+  git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repository."
+  # Use core.bare (shared config): 'git rev-parse --is-bare-repository' reports
+  # false from inside a worktree and would reject a valid layout.
+  [[ "$(git config core.bare 2>/dev/null)" == "true" ]] \
+    || die "not a bare-repo + worktree layout. Run '${PROG} migrate' first."
+
+  local container; container="$(container_dir)" || die "could not locate the layout container."
+
+  # Pick a branch interactively when none was given.
+  if [[ -z "$branch" ]]; then
+    [[ -t 0 ]] || die "add: no branch given (stdin is not interactive)."
+    branch="$(pick_branch)" || die "aborted."
+    [[ -n "$branch" ]] || die "add: no branch selected."
+  fi
+
+  local wt="$container/$branch"
+
+  # Guard: branch already has a worktree → report and stop (idempotent).
+  local existing; existing="$(wt_path_for_branch "$branch")"
+  if [[ -n "$existing" ]]; then
+    info "${C_GRN}Already present${C_RST} — '${branch}' has a worktree at ${existing}."
+    return 0
+  fi
+  # Guard: target path occupied by something that isn't that worktree.
+  [[ -e "$wt" ]] && die "add: '${wt}' already exists (not a worktree for '${branch}')."
+
+  # Resolve how the branch materialises (offline; never fetches).
+  if git show-ref --verify --quiet "refs/heads/$branch"; then
+    step "git worktree add ${branch}/  (existing local branch)"
+    run git worktree add "$wt" "$branch"
+  else
+    local remote=""
+    if git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+      remote=origin
+    else
+      local r
+      while IFS= read -r r; do
+        git show-ref --verify --quiet "refs/remotes/$r/$branch" && { remote="$r"; break; }
+      done < <(git remote)
+    fi
+    if [[ -n "$remote" ]]; then
+      step "git worktree add ${branch}/  (tracking ${remote}/${branch})"
+      run git worktree add --track -b "$branch" "$wt" "${remote}/${branch}"
+    else
+      step "git worktree add ${branch}/  (new branch from ${base})"
+      run git worktree add -b "$branch" "$wt" "$base"
+    fi
+  fi
+
+  # Copy ignored files from a source worktree so the new one is runnable.
+  local -a hints=()
+  if (( ! no_copy )); then
+    local src; src="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -z "$src" || ! -d "$src" ]]; then
+      src="$container/$(default_branch_name)"
+      [[ -d "$src" ]] || src="$(first_worktree "$container")"
+    fi
+    if [[ -n "$src" && -d "$src" && "$src" != "$wt" ]]; then
+      local cp_reflink=()
+      cp --reflink=auto --version >/dev/null 2>&1 && cp_reflink=(--reflink=auto)
+      local name copied=0 h
+      while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        git -C "$src" check-ignore -q -- "$name" || continue   # only ignored entries
+        if is_skip_dir "$name" && (( ! copy_all )); then
+          h="$(reinstall_hint "$src" "$name")"
+          if [[ -n "$h" ]]; then hints+=("${name}/ → ${h}")
+          else                   hints+=("${name}/ (recreate as needed)"); fi
+          continue
+        fi
+        [[ -e "$wt/$name" ]] && continue                       # never overwrite
+        copied=$((copied + 1))
+        run cp -a ${cp_reflink[@]+"${cp_reflink[@]}"} -- "$src/$name" "$wt/$name"
+      done < <(list_dir_entries "$src")
+      (( copied )) && step "copied ${copied} ignored item(s) from ${src#"$container"/}/"
+    fi
+  fi
+
+  print_tree "$container"
+  info ""
+  info "Next steps:"
+  info "  cd ${wt}"
+  if (( ${#hints[@]} )); then
+    info "  # skipped heavy dirs — rebuild them in the new worktree:"
+    for h in "${hints[@]}"; do info "  #   ${h}"; done
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
@@ -353,6 +576,7 @@ main() {
   case "$sub" in
     init)            cmd_init "$@" ;;
     migrate)         cmd_migrate "$@" ;;
+    add)             cmd_add "$@" ;;
     help|-h|--help)  usage ;;
     *)               usage >&2; die "unknown subcommand '$sub'." ;;
   esac

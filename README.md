@@ -41,6 +41,7 @@ git wt help
 ```bash
 git wt init [branch]              # brand-new repo (no .git, no remote)
 git wt migrate [--dry-run] [-y]   # convert an existing repo in place
+git wt add [branch] [options]     # add one worktree to an existing layout
 ```
 
 #### `git wt init [branch]`
@@ -75,6 +76,38 @@ Flags:
 
 - `--dry-run` — print the plan and exit; change nothing.
 - `-y`, `--yes` — skip the confirmation prompt.
+
+#### `git wt add [branch] [options]`
+
+Add a single worktree to an existing layout. Run from anywhere inside the
+layout — the container root **or** another worktree.
+
+Why not just `git worktree add`? Because the built-in resolves a relative path
+against your **current directory**, so from inside `main/` it would nest the new
+worktree at `main/feature/x` instead of as a sibling. `git wt add` always anchors
+to the container and names the folder exactly after the branch.
+
+- **Anchored placement.** Creates the worktree at `<container>/<branch>` (verbatim,
+  nested for slashed names), regardless of where you run it.
+- **Offline branch resolution.** Existing local branch → checked out; otherwise a
+  matching remote-tracking branch (e.g. `origin/<branch>`) → a local tracking
+  branch (no fetch); otherwise a **new** branch from `--from` (default `HEAD`).
+- **Runnable worktree.** Copies git-ignored files (`.env`, …) from a source
+  worktree (the one you're in, else the default branch's) so the new worktree
+  works immediately. Heavy/regenerable dirs (`node_modules/`, `.venv/`, …) are
+  **skipped** with a reinstall hint; `--copy-all` copies them too (copy-on-write
+  where the filesystem supports it).
+- **No branch given?** Pick one interactively from the branches that don't have a
+  worktree yet.
+- **Layout-only.** Aborts (pointing at `migrate`) if the repo isn't a bare-repo
+  layout. Never contacts or mutates the remote.
+
+Flags:
+
+- `--from <ref>` — base ref for a brand-new branch (default `HEAD`).
+- `--copy-all` — also copy the skipped heavy dirs.
+- `--no-copy-ignored` — copy no ignored files.
+- `-n`, `--dry-run` — print the plan and exit; change nothing.
 
 ### Tests
 
