@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+#
+# gj-find — discover git repositories under one or more roots and print their
+# paths, one per line. This is the pure, testable core of `gj`: no fzf, no cd.
+#
+# The interactive picking and directory change live in the `gj` shell function
+# (see gj.sh) — a child process can't change its parent shell's cwd, so the
+# `cd` has to happen in a sourced function. gj-find just prints candidates.
+#
+# Usage:
+#   gj-find [root...]        # roots default to $GJ_ROOTS (colon-separated),
+#                            # else the current directory
+#
+# Env:
+#   GJ_ROOTS       colon-separated search roots (default: ".")
+#   GJ_MAX_DEPTH   max find depth (default: 8)
+#
+# What counts as a repo: any directory containing a `.git` entry — a `.git`
+# directory (normal or bare repo / git-wt container) or a `.git` file (a linked
+# worktree). The parent of each `.git` is printed.
+
+set -euo pipefail
+
+depth="${GJ_MAX_DEPTH:-8}"
+
+usage() {
+  sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; $d'
+}
+
+# Roots: positional args win; else $GJ_ROOTS; else the current directory.
+roots=()
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+esac
+if (( $# )); then
+  roots=("$@")
+elif [[ -n "${GJ_ROOTS:-}" ]]; then
+  IFS=':' read -r -a roots <<<"$GJ_ROOTS"
+else
+  roots=(".")
+fi
+
+# Print the directory of every `.git` under a root. Prune `.git` itself (don't
+# descend into the object store) and skip heavy dirs that never hold repos.
+find_in() {
+  local root="$1"
+  [[ -d "$root" ]] || return 0
+  find "$root" -maxdepth "$depth" \
+    -type d \( -name node_modules -o -name .cache \) -prune -o \
+    -name .git -prune -print 2>/dev/null
+}
+
+for r in "${roots[@]}"; do
+  find_in "$r"
+done | sed 's#/\.git$##' | sort -u

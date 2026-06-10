@@ -109,7 +109,45 @@ Flags:
 - `--no-copy-ignored` — copy no ignored files.
 - `-n`, `--dry-run` — print the plan and exit; change nothing.
 
-### Tests
+## `gj` — fuzzy-jump to local git repos
+
+Pick a git repository found under the current directory with [`fzf`](https://github.com/junegunn/fzf)
+and drop your shell into it — optionally running a command once you're there.
+
+```bash
+gj                  # fzf-pick a repo, cd into it
+gj lazygit          # pick a repo, cd into it, then run `lazygit`
+gj git status -sb   # any command + args after the pick
+```
+
+It finds every directory containing a `.git` (normal repos, bare
+`git-wt` containers, and linked worktrees), skipping heavy dirs like
+`node_modules/`.
+
+### Install
+
+`gj` ships as two pieces — a discovery core and a shell function — because a
+child process can't change its parent shell's directory, so the `cd` has to run
+in your shell:
+
+1. Put `gj-find` on your `PATH`:
+   ```bash
+   ln -s "$(pwd)/gj-find" ~/.local/bin/gj-find
+   ```
+2. Source the function from your shell rc (`~/.bashrc` / `~/.zshrc`):
+   ```bash
+   source /path/to/gj.sh
+   ```
+
+`fzf` is recommended; without it, `gj` falls back to a numbered menu.
+
+### Configuration
+
+- `GJ_ROOTS` — colon-separated search roots (default: the current directory),
+  e.g. `export GJ_ROOTS="$HOME/src:$HOME/work"`.
+- `GJ_MAX_DEPTH` — how deep to search (default: `8`).
+
+## Tests
 
 A zero-dependency test suite (just bash + git) lives in `tests/`:
 
