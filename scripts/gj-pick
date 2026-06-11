@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+#
+# gj-pick — fuzzy-pick a git working tree and print its path.
+#
+# Lists actual working trees only: normal repos and git-wt worktrees. Bare
+# containers are skipped (the scan still descends through them to reach the
+# worktrees nested beneath).
+#
+# Prints ONLY the chosen absolute path to stdout; fzf draws its UI on /dev/tty.
+# The shell cannot cd from a child process, so pair this with a wrapper:
+#
+#   gj() { local d; d=$(gj-pick "$@") || return; [ -n "$d" ] && cd "$d"; }
+#
+# Install: put this on your PATH (e.g. symlink into ~/.local/bin):
+#   ln -s "$PWD/gj-pick" ~/.local/bin/gj-pick
+#
+# Dependencies: fd, fzf, git.
+
+set -euo pipefail
+
+PROG="gj-pick"
+
+usage() {
+  cat <<EOF
+${PROG} — fuzzy-pick a git working tree and print its path
+
+Usage:
+  ${PROG} [--cwd] [query]
+
+  (no args)   scan \$HOME
+  --cwd       scan the current working directory instead
+  query       trailing text pre-fills the fzf query
+
+Lists normal repos and git-wt worktrees; skips bare containers.
+Prints the chosen path to stdout. Pair with a shell function to cd:
+
+  gj() { local d; d=\$(gj-pick "\$@") || return; [ -n "\$d" ] && cd "\$d"; }
+
+Install (put gj-pick on your PATH):
+  ln -s "\$(pwd)/gj-pick" ~/.local/bin/gj-pick
+EOF
+}
+
+die() { printf 'gj-pick: %s\n' "$*" >&2; exit 2; }
+
+# ---------------------------------------------------------------------------
+# Parse args
+# ---------------------------------------------------------------------------
+
+root="$HOME"
+query=""
+
+while (( $# )); do
+  case "$1" in
+    --cwd)      root="$PWD" ;;
+    -h|--help)  usage; exit 0 ;;
+    --)         shift; break ;;
+    -*)         die "unknown option '$1'" ;;
+    *)          query="${query:+$query }$1" ;;
+  esac
+  shift
+done
+# Any args after `--` are also query text.
+while (( $# )); do query="${query:+$query }$1"; shift; done
+
+command -v fd  >/dev/null 2>&1 || die "missing dependency: fd"
+command -v fzf >/dev/null 2>&1 || die "missing dependency: fzf"
+
+# ---------------------------------------------------------------------------
+# Discover candidate .git entries and classify them
+# ---------------------------------------------------------------------------
+
+# Collapse a leading $HOME/ to ~/ for display; leave other paths absolute.
+collapse() {
+  local p="$1"
+  if [[ "$p" == "$HOME" ]]; then
+    printf '~'
+  elif [[ "$p" == "$HOME/"* ]]; then
+    printf '~/%s' "${p#"$HOME"/}"
+  else
+    printf '%s' "$p"
+  fi
+}
+
+# Expand a leading ~/ (or bare ~) back to $HOME for the final, cd-able path.
+expand() {
+  local p="$1"
+  if [[ "$p" == "~" ]]; then
+    printf '%s' "$HOME"
+  elif [[ "$p" == "~/"* ]]; then
+    printf '%s/%s' "$HOME" "${p#"~"/}"
+  else
+    printf '%s' "$p"
+  fi
+}
+
+candidates=()
+while IFS= read -r -d '' g; do
+  d="$(dirname -- "$g")"
+  if [[ -f "$g" ]]; then
+    # worktree (.git is a gitdir pointer file)
+    candidates+=("$(collapse "$d")")
+  elif [[ -d "$g" ]]; then
+    bare="$(git config --file "$g/config" --get core.bare 2>/dev/null || echo false)"
+    if [[ "$bare" != "true" ]]; then
+      candidates+=("$(collapse "$d")")   # normal repo
+    fi
+    # bare → container, skip
+  fi
+done < <(
+  # Find every .git entry (file or dir) under $root, but never descend into
+  # hidden directories (except .git itself). That prunes the bulk of $HOME
+  # (~/.cache, ~/.local, ~/.config, …) and the foreign repos lurking there,
+  # without a losing-battle denylist. A custom ignore drives the pruning:
+  #   .*           ignore (and don't descend into) anything starting with '.'
+  #   !.git        …except .git, which we still want to match
+  #   node_modules the one common non-hidden offender
+  # fd's walker (the `ignore` crate) prunes excluded dirs rather than just
+  # filtering them, so this is both quiet and fast.
+  fd --hidden --absolute-path --print0 \
+     --type f --type d \
+     --glob '.git' \
+     --ignore-file <(printf '%s\n' '.*' '!.git' 'node_modules') \
+     "$root"
+)
+
+# ---------------------------------------------------------------------------
+# Pick
+# ---------------------------------------------------------------------------
+
+if (( ${#candidates[@]} == 0 )); then
+  printf 'no git repos found\n' >&2
+  exit 1
+fi
+
+set +e
+selection="$(
+  printf '%s\n' "${candidates[@]}" \
+    | fzf --select-1 --exit-0 --query="$query" --prompt='gj> '
+)"
+status=$?
+set -e
+
+case "$status" in
+  0)
+    [[ -n "$selection" ]] || exit 0
+    expand "$selection"
+    printf '\n'
+    ;;
+  1)   printf 'no git repos found\n' >&2; exit 1 ;;   # no match
+  130) exit 0 ;;                                       # ESC / interrupt
+  *)   exit "$status" ;;
+esac
