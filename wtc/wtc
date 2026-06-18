@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+#
+# wtc — "Work Tree Claude". Open a new tmux window named after a branch and
+# launch a worktrunk worktree with Claude Code running in it:
+#
+#   wtc <branch> [-- <task>...]
+#   wtc feat/login -- 'Fix GH #322'
+#
+# This runs `wt switch --create <branch> -x claude [-- <task>]` inside a fresh
+# tmux window named <branch>. The window is a real interactive shell, so it
+# loads your rc (PATH, mise, the `wt` shell integration) and stays open after
+# Claude exits, leaving you in the worktree.
+#
+# Why an executable and not a shell function (cf. shell-init.sh): the cd-wrappers
+# there must run in the parent shell because a child can't change its parent's
+# directory. wtc has no such need — new-window and send-keys both target the
+# tmux server, not this process's shell — so it works fine as a plain binary.
+
+set -euo pipefail
+
+if [ -z "${TMUX:-}" ]; then
+  printf 'wtc: not inside a tmux session\n' >&2
+  exit 1
+fi
+
+if [ "$#" -eq 0 ]; then
+  printf 'usage: wtc <branch> [-- <task>...]\n' >&2
+  exit 2
+fi
+
+branch="$1"
+shift
+
+# Build the command line to type into the new window. printf %q quotes each
+# piece so a task like 'Fix GH #322' survives re-parsing by the window's shell.
+# Pass-through after <branch> mirrors `wt`'s own `<branch> [-- <args>...]`
+# contract, so callers supply the `--` separator (as worktrunk requires).
+cmd=$(printf 'wt switch --create %q -x claude' "$branch")
+if [ "$#" -gt 0 ]; then
+  cmd+=$(printf ' %q' "$@")
+fi
+
+tmux new-window -n "$branch"
+tmux send-keys "$cmd" Enter

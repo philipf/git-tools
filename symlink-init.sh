@@ -33,6 +33,7 @@ link() {
 printf 'Linking git-tools into %s:\n' "$bindir"
 link "$repo/wtx/wtx-tool"  wtx-tool
 link "$repo/gj/gj-pick"    gj-pick
+link "$repo/wtc/wtc"       wtc
 link "$repo/shell-init.sh" shell-init.sh
 
 printf '\nDone.'
