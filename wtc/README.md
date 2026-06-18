@@ -3,7 +3,7 @@
 "Work Tree Claude" — spin up a [worktrunk](https://worktrunk.dev) worktree with
 Claude Code, in its own tmux window, in one command.
 
-## `wtc` — worktree + Claude in a named tmux window
+## `wtc` — worktree + Claude + lazygit in a named tmux window
 
 ```sh
 wtc <branch> [-- <task>...]
@@ -11,13 +11,32 @@ wtc feat/login -- 'Fix GH #322'
 ```
 
 Opens a new tmux window in the current session, **named after the branch**, and
-runs `wt switch --create <branch> -x claude [-- <task>]` inside it. Handy for
-firing off parallel agents — each branch gets its own clearly-labelled window.
+sets up a worktrunk worktree two ways, side by side:
 
-The new window is a real interactive shell, so it:
+```
+┌───────────┬───────────┐
+│  claude   │  lazygit  │   pane 1: wt switch <branch> -x claude [-- task]
+│ ◀ focus   │           │   pane 2: wt switch <branch> -x lazygit
+└───────────┴───────────┘   focus returns to pane 1
+```
 
-- loads your rc (`PATH`, `mise`, the `wt` shell integration), and
-- stays open after Claude exits, leaving you in the worktree.
+Handy for firing off parallel agents — each branch gets its own clearly-labelled
+window with Claude Code and a git UI on the same worktree.
+
+Both panes are real interactive shells, so they load your rc (`PATH`, `mise`, the
+`wt` shell integration) and stay open after the tool exits, leaving you in the
+worktree.
+
+### How the worktree is set up
+
+The worktree is **created once up front** (`wt switch --create <branch> --no-cd`,
+which is a no-op if it already exists), then each pane runs
+`wt switch <branch> -x <tool>`. This means:
+
+- **worktrunk owns the `cd`** into the worktree — `wtc` never reconstructs the
+  worktree path itself (its on-disk layout is `wt`'s business), and it doesn't
+  rely on tmux pane-cwd inheritance, which would race the async pane-1 startup.
+- pane 2 can't race pane 1's creation, because the worktree already exists.
 
 The `<branch> [-- <task>...]` shape mirrors worktrunk's own
 `wt switch <branch> [-- <args>...]`, so you supply the `--` separator just as you
@@ -42,4 +61,5 @@ wtc feat/test -- 'say hello'
 ### Requirements
 
 - Running inside `tmux` (`wtc` refuses otherwise).
-- [`wt`](https://worktrunk.dev) and `claude` available in your interactive shell.
+- [`wt`](https://worktrunk.dev), `claude`, and `lazygit` available in your
+  interactive shell.

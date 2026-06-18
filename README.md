@@ -41,7 +41,7 @@ Standalone tools that live on your `PATH`.
 
 | Command | What it does |
 |---------|-------------|
-| `wtc` | Opens a new tmux window named after a branch and runs `wt switch --create <branch> -x claude [-- <task>]` in it — a worktrunk worktree with Claude Code, one command. Standalone executable (no shell wrapper). |
+| `wtc` | Opens a new tmux window named after a branch with a worktrunk worktree set up two ways side-by-side: Claude Code (pane 1, focused) and lazygit (pane 2). Standalone executable (no shell wrapper). |
 
 ### [shell-init.sh](shell-init.sh) — shell wrappers
 

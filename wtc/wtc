@@ -1,20 +1,26 @@
 #!/usr/bin/env bash
 #
-# wtc — "Work Tree Claude". Open a new tmux window named after a branch and
-# launch a worktrunk worktree with Claude Code running in it:
+# wtc — "Work Tree Claude". Open a new tmux window named after a branch with a
+# worktrunk worktree wired up two ways:
 #
 #   wtc <branch> [-- <task>...]
 #   wtc feat/login -- 'Fix GH #322'
 #
-# This runs `wt switch --create <branch> -x claude [-- <task>]` inside a fresh
-# tmux window named <branch>. The window is a real interactive shell, so it
-# loads your rc (PATH, mise, the `wt` shell integration) and stays open after
-# Claude exits, leaving you in the worktree.
+# Layout of the new window (side-by-side):
+#
+#   ┌───────────┬───────────┐
+#   │  claude   │  lazygit  │   pane 1: wt switch <branch> -x claude [-- task]
+#   │ ◀ focus   │           │   pane 2: wt switch <branch> -x lazygit
+#   └───────────┴───────────┘   focus returns to pane 1
+#
+# Both panes drive `wt switch`, so worktrunk owns the cd into the worktree — we
+# never reconstruct the worktree path ourselves (its layout is wt's business).
+# The worktree is created once up front so neither pane races creation.
 #
 # Why an executable and not a shell function (cf. shell-init.sh): the cd-wrappers
 # there must run in the parent shell because a child can't change its parent's
-# directory. wtc has no such need — new-window and send-keys both target the
-# tmux server, not this process's shell — so it works fine as a plain binary.
+# directory. wtc has no such need — new-window / split-window / send-keys all
+# target the tmux server, not this process's shell — so a plain binary works.
 
 set -euo pipefail
 
@@ -31,14 +37,33 @@ fi
 branch="$1"
 shift
 
-# Build the command line to type into the new window. printf %q quotes each
-# piece so a task like 'Fix GH #322' survives re-parsing by the window's shell.
-# Pass-through after <branch> mirrors `wt`'s own `<branch> [-- <args>...]`
-# contract, so callers supply the `--` separator (as worktrunk requires).
-cmd=$(printf 'wt switch --create %q -x claude' "$branch")
-if [ "$#" -gt 0 ]; then
-  cmd+=$(printf ' %q' "$@")
+# Ensure the worktree exists before wiring up panes, so pane 2 can `wt switch`
+# into it without racing pane 1's creation. Idempotent: skip if it's already
+# there (re-running wtc for the same branch just re-opens the window). When we
+# do create, --no-cd keeps this shell put while pre-/post-start hooks run.
+if ! wt list --format json 2>/dev/null | grep -qF "\"branch\": \"$branch\""; then
+  if ! wt switch --create "$branch" --no-cd; then
+    printf 'wtc: failed to create worktree for %s\n' "$branch" >&2
+    exit 1
+  fi
 fi
 
-tmux new-window -n "$branch"
-tmux send-keys "$cmd" Enter
+# Build pane commands. printf %q quotes each piece so a task like 'Fix GH #322'
+# survives re-parsing by the window's shell.
+claude_cmd=$(printf 'wt switch %q -x claude' "$branch")
+if [ "$#" -gt 0 ]; then
+  claude_cmd+=$(printf ' %q' "$@")
+fi
+lazygit_cmd=$(printf 'wt switch %q -x lazygit' "$branch")
+
+# Pane 1: claude. Capture the pane id so the split and focus target it exactly,
+# regardless of the user's pane-base-index.
+pane_claude=$(tmux new-window -P -F '#{pane_id}' -n "$branch")
+tmux send-keys -t "$pane_claude" "$claude_cmd" Enter
+
+# Pane 2: lazygit, split off to the right (side-by-side).
+pane_lazygit=$(tmux split-window -h -t "$pane_claude" -P -F '#{pane_id}')
+tmux send-keys -t "$pane_lazygit" "$lazygit_cmd" Enter
+
+# Return focus to the claude pane.
+tmux select-pane -t "$pane_claude"
