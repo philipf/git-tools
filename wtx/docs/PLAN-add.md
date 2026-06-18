@@ -1,11 +1,11 @@
-# Plan: `git wt add` — create one worktree in an existing layout
+# Plan: `wtx add` — create one worktree in an existing layout
 
-> Design record for the `add` subcommand. Status: **implemented** in `git-wt`
+> Design record for the `add` subcommand. Status: **implemented** in `wtx-tool`
 > (`cmd_add`), covered by `tests/test_add.sh`.
 
 ## Context
 
-`git-wt` currently has `init` and `migrate` — the two ways to *stand up* the
+`wtx-tool` currently has `init` and `migrate` — the two ways to *stand up* the
 bare-repo + worktree layout:
 
 ```
@@ -52,7 +52,7 @@ the one-worktree-at-a-time happy path for this layout. Power users can still cal
 ## Surface
 
 ```
-git wt add [<branch>] [--from <ref>]
+wtx add [<branch>] [--from <ref>]
            [--copy-all] [--no-copy-ignored]
            [-n|--dry-run] [-h|--help]
 ```
@@ -74,7 +74,7 @@ git wt add [<branch>] [--from <ref>]
 
 0. **Require the bare layout (hard error otherwise).** `add` only makes sense in
    a bare-repo + worktree layout. If `git config core.bare` is not `true`, abort
-   and point at `git wt migrate`. (Use `core.bare`, **not**
+   and point at `wtx migrate`. (Use `core.bare`, **not**
    `--is-bare-repository`: the latter returns `false` from inside a worktree, so
    it would wrongly reject a valid layout — see impl notes.)
 
@@ -137,7 +137,7 @@ git wt add [<branch>] [--from <ref>]
 - **D3 (Unwanted).** If not inside a git repository, `add` shall abort.
 - **D3a (Unwanted).** If the repository is not a bare-repo + worktree layout
   (`git config core.bare` is not `true`), then `add` shall abort and point the
-  user at `git wt migrate`.
+  user at `wtx migrate`.
 - **D4 (Event-driven).** When the branch exists locally, `add` shall check it out
   into the new worktree.
 - **D5 (Event-driven).** When the branch is absent locally but a remote-tracking
@@ -234,7 +234,7 @@ fail-fast `set -euo pipefail` (N4), colour-on-tty (N5).
   without clobbering a shared file.
 - **No-arg behaviour:** interactive picker of worktree-less candidate branches;
   non-interactive stdin must pass an explicit branch.
-- **Non-bare repos:** hard error pointing at `git wt migrate` — `add` is
+- **Non-bare repos:** hard error pointing at `wtx migrate` — `add` is
   layout-only.
 
 ## Deferred / possible extensions

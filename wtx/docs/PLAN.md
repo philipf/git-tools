@@ -1,6 +1,6 @@
-# Plan: `git-wt` — bare-repo + worktree layout tool
+# Plan: `wtx-tool` — bare-repo + worktree layout tool
 
-> Design record for `git-wt`. Decisions below were settled in a Q&A session and
+> Design record for `wtx-tool`. Decisions below were settled in a Q&A session and
 > verified end-to-end against real repos. Kept for future reference.
 
 ## Context
@@ -8,7 +8,7 @@
 The bare-repo + worktree layout puts one container folder holding the bare
 object store (`.git/`) plus one sibling folder per checked-out branch. Setting
 it up by hand is a fiddly multi-step dance (bare init/clone, refspec fix, fetch,
-per-worktree upstream). `git-wt` automates the two entry points:
+per-worktree upstream). `wtx-tool` automates the two entry points:
 
 - **`init`** — stand up the layout in a brand-new repo (no `.git`, no remote).
 - **`migrate`** — convert an existing repo (local-only or with a remote) into
@@ -28,16 +28,19 @@ myrepo/
 
 ## Form & packaging
 
-- **Single bash file** `git-wt` (no extension), `#!/usr/bin/env bash`,
+- **Single bash file** `wtx-tool` (no extension), `#!/usr/bin/env bash`,
   `set -euo pipefail`.
 - Subcommand **dispatcher**: `init`, `migrate`, `help` (room for future
   `add`/`list`/`remove`); shared helper functions at the top.
-- Named `git-wt` (not `git-worktree`) so git's `git foo → git-foo` mapping makes
-  it invokable as **`git wt …`** without colliding with the built-in
-  `git worktree`.
-- **Install:** symlink `~/.local/bin/git-wt → repo/git-wt` (that dir is on PATH).
+- Named `wtx-tool`, invoked as **`wtx …`** via a shell wrapper. The wrapper
+  function is `wtx()`; the binary is `wtx-tool` so the function doesn't shadow
+  itself when it calls through.
+  > **Superseded (2026-06-18).** Originally named `git-wt` so git's
+  > `git foo → git-foo` mapping exposed it as the subcommand `git wt`; renamed to
+  > the standalone `wtx` to avoid colliding with worktrunk's `wt` command.
+- **Install:** symlink `~/.local/bin/wtx-tool → repo/wtx-tool` (that dir is on PATH).
 
-## `git wt init [branch]`
+## `wtx init [branch]`
 
 Operates on the current directory (the container).
 
@@ -53,7 +56,7 @@ Operates on the current directory (the container).
 6. No remote interaction (precondition: no remote).
 7. Print resulting tree + next steps.
 
-## `git wt migrate [--dry-run] [-y]`
+## `wtx migrate [--dry-run] [-y]`
 
 Operates in-place on the current repo. Strategy: **reuse the existing `.git`**
 (flip to bare) — lossless (keeps all local branches, tags, stashes, reflog), no
@@ -120,12 +123,12 @@ already bare, migrate:
   > top-level component, so a tracked dir containing ignored files was moved
   > wholesale; the worktree checkout then recreated the tracked copy and the
   > restore failed with `mv: cannot overwrite ... Directory not empty`, leaving a
-  > `.git-wt-ignored.*` staging dir behind. Covered by
+  > `.wtx-ignored.*` staging dir behind. Covered by
   > `test_migrate_handles_ignored_inside_tracked_dir`.
 
 ## Verification (all passing)
 
-1. `bash -n git-wt` (syntax). `shellcheck` if available.
+1. `bash -n wtx-tool` (syntax). `shellcheck` if available.
 2. **init (empty):** `.git/` + empty unborn `main/`.
 3. **init (non-empty):** pre-existing files moved into `main/`, untracked.
 4. **init guard:** re-run aborts (`.git` exists).
@@ -144,6 +147,6 @@ already bare, migrate:
 
 ## Files
 
-- `git-wt` — the script.
+- `wtx-tool` — the script.
 - `README.md` — usage + install.
 - `docs/PLAN.md` — this document.

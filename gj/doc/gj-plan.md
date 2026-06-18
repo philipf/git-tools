@@ -1,6 +1,6 @@
 # `gj` — Implementation Plan
 
-Implements the spec in [PRD.md](./PRD.md). Style follows `wt/git-wt`:
+Implements the spec in [PRD.md](./PRD.md). Style follows `wtx/wtx-tool`:
 `#!/usr/bin/env bash`, `set -euo pipefail`, tty-gated colors, small focused
 helpers.
 
@@ -128,7 +128,7 @@ lay outside `$HOME`, there is no leading `~/` to expand — pass through unchang
 ### Usage text
 
 `gj-pick [--cwd] [query]` with a one-line description of each, plus the install
-hint (PATH + `gj` function). Mirror `git-wt`'s `usage()` formatting.
+hint (PATH + `gj` function). Mirror `wtx-tool`'s `usage()` formatting.
 
 ## Install / wiring
 
@@ -157,7 +157,7 @@ Add a `gj` / `gj-pick` section to `gj/` (or the repo README) covering:
 ## Manual verification checklist
 
 - `gj` from a fresh shell lists repos under `~`; picking one changes directory.
-- A `git-wt` layout shows each worktree but **not** the bare container.
+- A `wtx-tool` layout shows each worktree but **not** the bare container.
 - `gj --cwd` from inside a tree limits results to that subtree.
 - `gj <unique-substring>` auto-jumps (single match, no picker).
 - A scope with exactly one repo auto-jumps.
@@ -178,4 +178,4 @@ Add a `gj` / `gj-pick` section to `gj/` (or the repo README) covering:
   recent `fd`; flags used: `--hidden`, `--absolute-path`, `--print0`, `--type`,
   `--glob`, `--ignore-file`).
 - Bareness check relies on `core.bare` being present/`true` in a bare repo's
-  config (true for `git-wt`-created bare stores and standard bare repos).
+  config (true for `wtx-tool`-created bare stores and standard bare repos).

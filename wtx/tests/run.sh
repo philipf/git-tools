@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# run.sh — run the git-wt test suite (zero dependencies; just bash + git).
+# run.sh — run the wtx-tool test suite (zero dependencies; just bash + git).
 #
 #   ./tests/run.sh            # run everything
 #   ./tests/run.sh init       # run only test files matching *init*

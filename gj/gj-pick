@@ -2,7 +2,7 @@
 #
 # gj-pick — fuzzy-pick a git working tree and print its path.
 #
-# Lists actual working trees only: normal repos and git-wt worktrees. Bare
+# Lists actual working trees only: normal repos and wtx worktrees. Bare
 # containers are skipped (the scan still descends through them to reach the
 # worktrees nested beneath).
 #
@@ -31,7 +31,7 @@ Usage:
   --cwd       scan the current working directory instead
   query       trailing text pre-fills the fzf query
 
-Lists normal repos and git-wt worktrees; skips bare containers.
+Lists normal repos and wtx worktrees; skips bare containers.
 Prints the chosen path to stdout. Pair with a shell function to cd:
 
   gj() { local d; d=\$(gj-pick "\$@") || return; [ -n "\$d" ] && cd "\$d"; }

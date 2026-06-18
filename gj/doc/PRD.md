@@ -3,7 +3,7 @@
 ## Summary
 
 `gj` is a command-line tool to **fuzzy-pick a git working tree and `cd` into it**.
-It scans for git repositories (and `git-wt` worktrees) under a root directory,
+It scans for git repositories (and `wtx-tool` worktrees) under a root directory,
 presents them in an `fzf` picker, and changes the current shell's directory to
 the chosen one.
 
@@ -12,7 +12,7 @@ bare containers, so every entry is somewhere you can actually do git work.
 
 ## Motivation
 
-Repos on this machine use the `git-wt` **bare-repo + worktree layout**: a
+Repos on this machine use the `wtx-tool` **bare-repo + worktree layout**: a
 container holds a bare `.git/` object store plus one sibling folder per
 checked-out branch:
 
@@ -29,7 +29,7 @@ without remembering or typing paths.
 ## Users / Context
 
 Single-user developer tool, invoked interactively from a `zsh` (and `bash`)
-shell. Part of the `git-tools` repository alongside `git-wt`.
+shell. Part of the `git-tools` repository alongside `wtx-tool`.
 
 ## Functional Requirements
 

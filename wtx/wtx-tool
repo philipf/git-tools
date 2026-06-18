@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# git-wt — set up and migrate to a bare-repo + worktree layout.
+# wtx-tool — set up and migrate to a bare-repo + worktree layout.
 #
 # Layout:
 #   myrepo/
@@ -10,13 +10,14 @@
 #                        branch keeps its slash, the folder uses `-`)
 #
 # Subcommands:
-#   git wt init [branch]            stand up the layout in a brand-new repo
-#   git wt migrate [--dry-run] [-y] convert an existing repo to the layout
-#   git wt add [branch] [opts]      add one worktree to an existing layout
-#   git wt help                     show this help
+#   wtx init [branch]            stand up the layout in a brand-new repo
+#   wtx migrate [--dry-run] [-y] convert an existing repo to the layout
+#   wtx add [branch] [opts]      add one worktree to an existing layout
+#   wtx help                     show this help
 #
-# Install as a git subcommand (so `git wt …` works):
-#   ln -s "$PWD/git-wt" ~/.local/bin/git-wt
+# Install: put wtx-tool on your PATH, then wrap it with the wtx() shell
+# function so it can cd for you (see usage below and wtx/README.md).
+#   ln -s "$PWD/wtx-tool" ~/.local/bin/wtx-tool
 
 set -euo pipefail
 
@@ -24,7 +25,7 @@ set -euo pipefail
 # Helpers
 # ---------------------------------------------------------------------------
 
-PROG="git wt"
+PROG="wtx"
 DRY_RUN=0
 ASSUME_YES=0
 
@@ -60,21 +61,21 @@ confirm() {
   [[ "$reply" =~ ^[Yy]$ ]]
 }
 
-# wrapped_cd — true when invoked via the `wt` shell wrapper AND we'll actually
-# land somewhere (GIT_WT_CD_FILE is set and this isn't a dry-run). Used both to
+# wrapped_cd — true when invoked via the `wtx` shell wrapper AND we'll actually
+# land somewhere (WTX_CD_FILE is set and this isn't a dry-run). Used both to
 # emit the cd target and to drop the now-redundant 'cd <path>' hint.
-wrapped_cd() { (( ! DRY_RUN )) && [[ -n "${GIT_WT_CD_FILE:-}" ]]; }
+wrapped_cd() { (( ! DRY_RUN )) && [[ -n "${WTX_CD_FILE:-}" ]]; }
 
-# emit_cd_target ABS_PATH — record the worktree the `wt` wrapper should cd into.
+# emit_cd_target ABS_PATH — record the worktree the `wtx` wrapper should cd into.
 # A child process can't change its parent shell's directory, so the wrapper sets
-# GIT_WT_CD_FILE to a temp file and reads it back after we exit. No-op for plain
-# `git wt …` (var unset) and under --dry-run. Call only on success paths that
+# WTX_CD_FILE to a temp file and reads it back after we exit. No-op for plain
+# `wtx-tool …` (var unset) and under --dry-run. Call only on success paths that
 # created a place to work; never on early-return no-ops. Path must be absolute.
 # (Returns 0 even when not wrapped: it's a bare statement under `set -e`, so a
 # non-zero return would abort the script before the closing output.)
 emit_cd_target() {
   wrapped_cd || return 0
-  printf '%s\n' "$1" > "$GIT_WT_CD_FILE"
+  printf '%s\n' "$1" > "$WTX_CD_FILE"
 }
 
 usage() {
@@ -99,8 +100,16 @@ Options for add:
   --no-copy-ignored   do not copy any ignored files
   -n, --dry-run       print the plan and exit; change nothing
 
-Install (so 'git wt …' works):
-  ln -s "\$(pwd)/git-wt" ~/.local/bin/git-wt
+Install (put wtx-tool on your PATH):
+  ln -s "\$(pwd)/wtx-tool" ~/.local/bin/wtx-tool
+
+Then wrap it so it can cd into the worktree for you:
+  wtx() {
+    local f d; f=\$(mktemp) || { wtx-tool "\$@"; return; }
+    WTX_CD_FILE="\$f" wtx-tool "\$@"; local rc=\$?
+    d=\$(cat "\$f" 2>/dev/null); rm -f "\$f"
+    [ -n "\$d" ] && [ -d "\$d" ] && cd "\$d"; return \$rc
+  }
 EOF
 }
 
@@ -451,7 +460,7 @@ cmd_migrate() {
   # then drop them into the target worktree once it exists.
   local stash=""
   if (( ${#ignored[@]} )); then
-    stash="$(mktemp -d "${container}/.git-wt-ignored.XXXXXX")"
+    stash="$(mktemp -d "${container}/.wtx-ignored.XXXXXX")"
     step "setting aside ignored files"
     for e in "${ignored[@]}"; do
       if [[ -e "$e" || -L "$e" ]]; then

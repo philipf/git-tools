@@ -1,4 +1,4 @@
-# lib.sh — tiny zero-dependency test helpers for git-wt.
+# lib.sh — tiny zero-dependency test helpers for wtx-tool.
 #
 # A "test" is any shell function named test_* in a tests/test_*.sh file.
 # run.sh sources every test file, then runs each test_* function in its own
@@ -6,10 +6,10 @@
 # passes. Assertions below all funnel through fail().
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GITWT="$ROOT/git-wt"
+WTXTOOL="$ROOT/wtx-tool"
 
 # Run the tool under test.
-gitwt() { "$GITWT" "$@"; }
+wtxtool() { "$WTXTOOL" "$@"; }
 
 # fail MSG — abort the current test with a message.
 fail() { printf '    %s%s\n' "${RED:-}✗ ${RST:-}" "$*" >&2; exit 1; }
@@ -18,7 +18,7 @@ fail() { printf '    %s%s\n' "${RED:-}✗ ${RST:-}" "$*" >&2; exit 1; }
 # auto-removed when the test subshell exits. Sets a default identity and
 # init.defaultBranch=main so tests are reproducible regardless of the host.
 sandbox() {
-  local d; d="$(mktemp -d "${TMPDIR:-/tmp}/gitwt-test.XXXXXX")"
+  local d; d="$(mktemp -d "${TMPDIR:-/tmp}/wtxtool-test.XXXXXX")"
   # Bake the path into the trap so cleanup doesn't depend on $d still being in
   # scope (it's local) when the subshell exits under `set -u`.
   trap "rm -rf '$d'" EXIT

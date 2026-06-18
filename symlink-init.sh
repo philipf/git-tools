@@ -8,7 +8,7 @@
 #
 #   ./symlink-init.sh
 #
-# Then source the shell wrappers (wt/gj/gjj) from your shell rc — point at the
+# Then source the shell wrappers (wtx/gj/gjj) from your shell rc — point at the
 # stable symlink, not the repo, so it's machine-independent:
 #
 #   [ -f ~/.local/bin/shell-init.sh ] && source ~/.local/bin/shell-init.sh
@@ -31,7 +31,7 @@ link() {
 }
 
 printf 'Linking git-tools into %s:\n' "$bindir"
-link "$repo/wt/git-wt"     git-wt
+link "$repo/wtx/wtx-tool"  wtx-tool
 link "$repo/gj/gj-pick"    gj-pick
 link "$repo/shell-init.sh" shell-init.sh
 

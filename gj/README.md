@@ -5,7 +5,7 @@ Standalone helper tools.
 ## `gj-pick` / `gj` — fuzzy-jump to a git repo or worktree
 
 Fuzzy-pick a git working tree with `fzf` and `cd` into it. Lists **normal repos
-and `git-wt` worktrees**; bare containers are skipped (you can't do git work
+and `wtx` worktrees**; bare containers are skipped (you can't do git work
 there), so every entry is somewhere you can actually land.
 
 ```

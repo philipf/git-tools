@@ -4,7 +4,7 @@ A small collection of git helpers and shell scripts for working with repositorie
 
 ## Install
 
-Run the installer once per machine. It symlinks the executables (`git-wt`,
+Run the installer once per machine. It symlinks the executables (`wtx-tool`,
 `gj-pick`) and the shell-init helper into `~/.local/bin` (override with
 `BINDIR=…`), using absolute paths so they keep working wherever this repo lives:
 
@@ -12,7 +12,7 @@ Run the installer once per machine. It symlinks the executables (`git-wt`,
 ./symlink-init.sh
 ```
 
-Then source the shell wrappers (`wt`, `gj`, `gjj`) from your `~/.zshrc` /
+Then source the shell wrappers (`wtx`, `gj`, `gjj`) from your `~/.zshrc` /
 `~/.bashrc` — point at the **symlink**, not the repo, so it's machine-independent:
 
 ```sh
@@ -23,17 +23,15 @@ Then source the shell wrappers (`wt`, `gj`, `gjj`) from your `~/.zshrc` /
 
 ## Contents
 
-### [wt/](wt/README.md) — Git subcommands
-
-Custom commands that plug into git as `git <command>`.
+### [wtx/](wtx/README.md) — bare-repo + worktree layout tool
 
 | Command | What it does |
 |---------|-------------|
-| `git wt` | Sets up and manages a **bare-repo + worktree** layout — one container folder holding the bare object store and one sibling folder per branch. Supports `init`, `migrate`, and `add`. |
+| `wtx` / `wtx-tool` | Sets up and manages a **bare-repo + worktree** layout — one container folder holding the bare object store and one sibling folder per branch. Supports `init`, `migrate`, and `add`. |
 
 ### [gj/](gj/README.md) — Standalone shell tools
 
-Standalone tools that live on your `PATH` but are not git subcommands.
+Standalone tools that live on your `PATH`.
 
 | Script | What it does |
 |--------|-------------|
@@ -42,5 +40,5 @@ Standalone tools that live on your `PATH` but are not git subcommands.
 ### [shell-init.sh](shell-init.sh) — shell wrappers
 
 The `cd`-into-place wrappers that must run in your shell (a child process can't
-change your shell's directory): `wt` (for `git wt`), `gj`, and `gjj`. Installed
+change your shell's directory): `wtx` (for `wtx-tool`), `gj`, and `gjj`. Installed
 via the symlink + source line in [Install](#install) above.

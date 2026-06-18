@@ -1,8 +1,8 @@
-# git-scripts
+# wtx
 
-Small git helpers.
+A bare-repo + worktree layout tool.
 
-## `git-wt` — bare-repo + worktree layout
+## `wtx` — bare-repo + worktree layout
 
 Sets up and migrates repos to a **bare-repo + worktree** layout: one container
 folder holds the bare object store (`.git/`) plus one sibling folder per
@@ -23,25 +23,24 @@ through empty intermediate directories.
 ### Install
 
 Run [`symlink-init.sh`](../symlink-init.sh) at the repo root once per machine —
-it symlinks `git-wt` onto your `PATH` (as `git-wt`, no extension, so git exposes
-it as the `git wt` subcommand) along with the other tools:
+it symlinks `wtx-tool` onto your `PATH` along with the other tools:
 
 ```bash
 ../symlink-init.sh
-git wt help
+wtx-tool help
 ```
 
-> Named `git-wt` (not `git-worktree`) on purpose — `git worktree` is already a
-> built-in git command.
+> Standalone command `wtx` (not a `git` subcommand) — the name `wt` is taken by
+> worktrunk, and `git worktree` is already a built-in.
 
-### `wt` — auto-`cd` into the new worktree
+### `wtx` — auto-`cd` into the new worktree
 
-`git wt add`/`init`/`migrate` create a worktree and then tell you to `cd` into
-it — because a subprocess can't change its parent shell's directory. The `wt`
+`wtx add`/`init`/`migrate` create a worktree and then tell you to `cd` into
+it — because a subprocess can't change its parent shell's directory. The `wtx`
 shell function (in [`shell-init.sh`](../shell-init.sh) at the repo root, alongside
-`gj`/`gjj`) lands you there automatically. After running the installer above,
-source it from your shell rc (`~/.zshrc` / `~/.bashrc` — works in both) via the
-symlink, so it's machine-independent:
+`gj`/`gjj`) wraps `wtx-tool` and lands you there automatically. After running the
+installer above, source it from your shell rc (`~/.zshrc` / `~/.bashrc` — works in
+both) via the symlink, so it's machine-independent:
 
 ```sh
 [ -f ~/.local/bin/shell-init.sh ] && source ~/.local/bin/shell-init.sh
@@ -50,26 +49,26 @@ symlink, so it's machine-independent:
 Then:
 
 ```bash
-wt add feature/x   # creates the worktree, then drops you inside it
-wt init            # → cd into the new worktree
-wt migrate         # → cd into the current branch's worktree
+wtx add feature/x   # creates the worktree, then drops you inside it
+wtx init            # → cd into the new worktree
+wtx migrate         # → cd into the current branch's worktree
 ```
 
-How it works: when `GIT_WT_CD_FILE` is set, `git wt` writes the absolute path of
+How it works: when `WTX_CD_FILE` is set, `wtx-tool` writes the absolute path of
 the worktree to that file on success; the function reads it back and `cd`s. Plain
-`git wt …` (the var unset) behaves exactly as before and just prints the `cd`
+`wtx-tool …` (the var unset) behaves exactly as before and just prints the `cd`
 hint. The jump is skipped for no-ops — a `--dry-run`, or an `add`/`migrate` that
 finds the worktree already there leaves you put.
 
 ### Usage
 
 ```bash
-git wt init [branch]              # brand-new repo (no .git, no remote)
-git wt migrate [--dry-run] [-y]   # convert an existing repo in place
-git wt add [branch] [options]     # add one worktree to an existing layout
+wtx init [branch]              # brand-new repo (no .git, no remote)
+wtx migrate [--dry-run] [-y]   # convert an existing repo in place
+wtx add [branch] [options]     # add one worktree to an existing layout
 ```
 
-#### `git wt init [branch]`
+#### `wtx init [branch]`
 
 Run in the directory you want as the container.
 
@@ -80,7 +79,7 @@ Run in the directory you want as the container.
 - If the directory already had files, they're moved into `<branch>/`, untracked
   and ready for the first commit.
 
-#### `git wt migrate [--dry-run] [-y]`
+#### `wtx migrate [--dry-run] [-y]`
 
 Run from the root of an existing repo (local-only or with a remote).
 
@@ -102,14 +101,14 @@ Flags:
 - `--dry-run` — print the plan and exit; change nothing.
 - `-y`, `--yes` — skip the confirmation prompt.
 
-#### `git wt add [branch] [options]`
+#### `wtx add [branch] [options]`
 
 Add a single worktree to an existing layout. Run from anywhere inside the
 layout — the container root **or** another worktree.
 
 Why not just `git worktree add`? Because the built-in resolves a relative path
 against your **current directory**, so from inside `main/` it would nest the new
-worktree at `main/feature-x` instead of as a sibling. `git wt add` always anchors
+worktree at `main/feature-x` instead of as a sibling. `wtx add` always anchors
 to the container and names the folder after the branch with `/` flattened to `-`.
 
 - **Anchored, flat placement.** Creates the worktree at

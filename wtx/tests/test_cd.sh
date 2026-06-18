@@ -1,21 +1,21 @@
-# Tests for the GIT_WT_CD_FILE contract that the `wt` shell wrapper depends on.
+# Tests for the WTX_CD_FILE contract that the `wt` shell wrapper depends on.
 #
-# When GIT_WT_CD_FILE points at a file, git-wt writes the absolute path of the
+# When WTX_CD_FILE points at a file, wtx-tool writes the absolute path of the
 # worktree to cd into — but only on success paths that created a place to work,
 # and never under --dry-run or when the var is unset.
 
 # Stand up a bare-repo + worktree layout in cwd (main/ only), at the container.
 make_layout() {
   make_repo "$@"
-  gitwt migrate -y >/dev/null
+  wtxtool migrate -y >/dev/null
 }
 
-# run_capture_cd SUBCMD... — run git-wt with GIT_WT_CD_FILE set to a temp file
+# run_capture_cd SUBCMD... — run wtx-tool with WTX_CD_FILE set to a temp file
 # and print whatever it wrote there (empty if nothing). The temp file lives in
 # the sandbox, so it's cleaned up with the rest of the test.
 run_capture_cd() {
-  local f; f="$(mktemp "${TMPDIR:-/tmp}/gitwt-cd.XXXXXX")"
-  GIT_WT_CD_FILE="$f" gitwt "$@" >/dev/null 2>&1 || true
+  local f; f="$(mktemp "${TMPDIR:-/tmp}/wtxtool-cd.XXXXXX")"
+  WTX_CD_FILE="$f" wtxtool "$@" >/dev/null 2>&1 || true
   cat "$f"
   rm -f "$f"
 }
@@ -66,11 +66,11 @@ test_already_migrated_writes_nothing() {
 }
 
 test_unset_var_leaves_output_unchanged() {
-  # Without the var, git-wt must behave exactly as before: the human 'cd <path>'
+  # Without the var, wtx-tool must behave exactly as before: the human 'cd <path>'
   # hint is printed (and obviously nothing is written anywhere).
   sandbox
   make_layout
-  local out; out="$(gitwt add feature/x)"
+  local out; out="$(wtxtool add feature/x)"
   assert_contains "$out" "cd "                  # plain hint still shown
 }
 
@@ -81,10 +81,10 @@ test_wrapped_suppresses_cd_hint() {
   make_repo
   printf 'node_modules/\n' > .gitignore
   git add -A && git commit -qm gi
-  gitwt migrate -y >/dev/null
+  wtxtool migrate -y >/dev/null
   mkdir -p main/node_modules/x && echo y > main/node_modules/x/i.js
-  local f; f="$(mktemp "${TMPDIR:-/tmp}/gitwt-cd.XXXXXX")"
-  local out; out="$(GIT_WT_CD_FILE="$f" gitwt add feature/x 2>&1)"
+  local f; f="$(mktemp "${TMPDIR:-/tmp}/wtxtool-cd.XXXXXX")"
+  local out; out="$(WTX_CD_FILE="$f" wtxtool add feature/x 2>&1)"
   rm -f "$f"
   assert_contains "$out" "node_modules"         # heavy-dir hint kept
   [[ "$out" != *"cd "* ]] || fail "expected no 'cd ' hint when wrapped, got: $out"

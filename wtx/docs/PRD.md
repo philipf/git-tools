@@ -1,8 +1,8 @@
-# PRD: `git-wt` — bare-repo + worktree layout tool
+# PRD: `wtx-tool` — bare-repo + worktree layout tool
 
 ## Purpose
 
-`git-wt` lets a developer create or convert a git repository into a
+`wtx-tool` lets a developer create or convert a git repository into a
 **bare-repo + worktree** layout: one container folder holds the bare object
 store (`.git/`) plus one sibling folder per branch.
 
@@ -40,8 +40,11 @@ standard patterns:
 
 ### General
 
-- **G1 (Ubiquitous).** The tool shall be a single executable named `git-wt` so it
-  can be run as the git subcommand `git wt`.
+- **G1 (Ubiquitous).** The tool shall be a single executable named `wtx-tool`,
+  invoked directly on the `PATH` (and via the `wtx()` shell wrapper).
+  > **Superseded (2026-06-18).** Originally named `git-wt` so it ran as the git
+  > subcommand `git wt`; renamed to the standalone `wtx` to avoid colliding with
+  > worktrunk's `wt` command.
 - **G2 (Ubiquitous).** The tool shall support the subcommands `init`, `migrate`,
   and `help`.
 - **G3 (Event-driven).** When the tool is run with no subcommand, or with `help`,
@@ -158,8 +161,8 @@ standard patterns:
 - **A1.** git is version 2.42 or newer (for `git worktree add --orphan`).
 - **A2.** All worktree folders live on the same filesystem as the container, so
   moves are fast.
-- **A3.** The user installs the tool on their `PATH` as `git-wt` (typically via a
-  symlink) so that `git wt` resolves to it.
+- **A3.** The user installs the tool on their `PATH` as `wtx-tool` (typically via a
+  symlink) and wraps it with the `wtx()` shell function for auto-`cd`.
 
 ## Out of scope
 
